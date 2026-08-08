@@ -94,46 +94,32 @@ class BuildCommand extends BaseCommand
     {
         Output::step('Packing Windows archive…');
 
-        $resource = $this->resolveResource('win' . DIRECTORY_SEPARATOR . 'tinyphp.zip');
-        if ($resource === null) {
-            Output::error('Windows resource not found: win/tinyphp.zip');
+        $sourceTinyphp = $this->resolveTemplateDir('win' . DIRECTORY_SEPARATOR . 'tinyphp');
+        if ($sourceTinyphp === null) {
+            Output::error('Windows resource not found: win/tinyphp');
             return;
-        }
-
-        $tinyphpZip = $resource;
-        $tempZip = null;
-        if (str_starts_with($resource, 'phar://')) {
-            $tempZip = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'nova-tinyphp-' . uniqid('', true) . '.zip';
-            if (!copy($resource, $tempZip)) {
-                Output::error('Failed to copy tinyphp.zip from phar.');
-                return;
-            }
-            $tinyphpZip = $tempZip;
         }
 
         $winRoot = $this->distDir . DIRECTORY_SEPARATOR . 'win-temp';
         $this->removePath($winRoot);
-        mkdir($winRoot, 0777, true);
-
-        $archive = new \ZipArchive();
-        if ($archive->open($tinyphpZip) !== true) {
-            Output::error('Failed to open tinyphp.zip');
-            if ($tempZip !== null) {
-                @unlink($tempZip);
-            }
+        $tinyphpDir = $winRoot . DIRECTORY_SEPARATOR . 'tinyphp';
+        if (!$this->copyDir($sourceTinyphp, $tinyphpDir)) {
             return;
         }
-        $archive->extractTo($winRoot);
-        $archive->close();
-        if ($tempZip !== null) {
-            @unlink($tempZip);
-        }
 
-        $tinyphpDir = $winRoot . DIRECTORY_SEPARATOR . 'tinyphp';
-        $wwwDir = $tinyphpDir . DIRECTORY_SEPARATOR . 'www';
-        if (!is_dir($wwwDir)) {
-            mkdir($wwwDir, 0777, true);
+        // Local runtime junk — start.bat regenerates these.
+        foreach (['port.txt', 'listen.conf', 'public.conf'] as $junk) {
+            $path = $tinyphpDir . DIRECTORY_SEPARATOR . $junk;
+            if (is_file($path)) {
+                @unlink($path);
+            }
         }
+        $this->removePath($tinyphpDir . DIRECTORY_SEPARATOR . 'logs');
+        mkdir($tinyphpDir . DIRECTORY_SEPARATOR . 'logs', 0777, true);
+
+        $wwwDir = $tinyphpDir . DIRECTORY_SEPARATOR . 'www';
+        $this->removePath($wwwDir);
+        mkdir($wwwDir, 0777, true);
         $this->copyDir($preparedSrc, $wwwDir);
 
         $zipPath = $this->distDir . DIRECTORY_SEPARATOR . $this->nova['name'] . '-' . $version . '-windows.zip';
