@@ -137,11 +137,24 @@ abstract class BaseCommand
 
     /**
      * 解析模板目录路径（PHAR / 源码双模式）
+     *
+     * phar 内缺失时回落到同级磁盘（例如源码树里的 win/tinyphp）。
      */
     protected function resolveTemplateDir(string $relative): ?string
     {
+        $relative = $this->normalizeRelative($relative);
         $path = $this->toolPath($relative);
-        return is_dir($path) ? $path : null;
+        if (is_dir($path)) {
+            return $path;
+        }
+
+        foreach ($this->externalResourceBases($relative) as $candidate) {
+            if (is_dir($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -149,19 +162,54 @@ abstract class BaseCommand
      */
     protected function resolveResource(string $relative): ?string
     {
+        $relative = $this->normalizeRelative($relative);
         $path = $this->toolPath($relative);
-        return is_file($path) ? $path : null;
+        if (is_file($path)) {
+            return $path;
+        }
+
+        foreach ($this->externalResourceBases($relative) as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function toolPath(string $relative): string
     {
-        $relative = trim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relative), DIRECTORY_SEPARATOR);
+        $relative = $this->normalizeRelative($relative);
         $runningPhar = Phar::running(false);
         $basePath = $runningPhar !== ''
             ? 'phar://' . $runningPhar
             : dirname(__DIR__);
 
         return $basePath . DIRECTORY_SEPARATOR . $relative;
+    }
+
+    /**
+     * phar 旁的磁盘候选路径：仓库布局 src/<rel>，或紧挨 phar 的 <rel>
+     *
+     * @return list<string>
+     */
+    private function externalResourceBases(string $relative): array
+    {
+        $runningPhar = Phar::running(false);
+        if ($runningPhar === '') {
+            return [];
+        }
+
+        $root = dirname($runningPhar);
+        return [
+            $root . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . $relative,
+            $root . DIRECTORY_SEPARATOR . $relative,
+        ];
+    }
+
+    private function normalizeRelative(string $relative): string
+    {
+        return trim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relative), DIRECTORY_SEPARATOR);
     }
 
     /**

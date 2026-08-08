@@ -94,16 +94,19 @@ class BuildCommand extends BaseCommand
     {
         Output::step('Packing Windows archive…');
 
-        $sourceTinyphp = $this->resolveTemplateDir('win' . DIRECTORY_SEPARATOR . 'tinyphp');
-        if ($sourceTinyphp === null) {
-            Output::error('Windows resource not found: win/tinyphp');
+        $winRoot = $this->distDir . DIRECTORY_SEPARATOR . 'win-temp';
+        $this->removePath($winRoot);
+        mkdir($winRoot, 0777, true);
+
+        // phar 内嵌的是 zip；源码开发时可直接用目录
+        if (!$this->materializeTinyphp($winRoot)) {
             return;
         }
 
-        $winRoot = $this->distDir . DIRECTORY_SEPARATOR . 'win-temp';
-        $this->removePath($winRoot);
         $tinyphpDir = $winRoot . DIRECTORY_SEPARATOR . 'tinyphp';
-        if (!$this->copyDir($sourceTinyphp, $tinyphpDir)) {
+        if (!is_dir($tinyphpDir)) {
+            Output::error('Windows resource invalid: expected tinyphp/ after extract/copy');
+            $this->removePath($winRoot);
             return;
         }
 
@@ -127,6 +130,49 @@ class BuildCommand extends BaseCommand
         $this->removePath($winRoot);
 
         Output::step("Created → dist/{$this->nova['name']}-{$version}-windows.zip");
+    }
+
+    /**
+     * 优先解压 win/tinyphp.zip（phar 内嵌），否则复制 win/tinyphp 目录。
+     */
+    private function materializeTinyphp(string $winRoot): bool
+    {
+        $zipResource = $this->resolveResource('win' . DIRECTORY_SEPARATOR . 'tinyphp.zip');
+        if ($zipResource !== null) {
+            $tinyphpZip = $zipResource;
+            $tempZip = null;
+            if (str_starts_with($zipResource, 'phar://')) {
+                $tempZip = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'nova-tinyphp-' . uniqid('', true) . '.zip';
+                if (!copy($zipResource, $tempZip)) {
+                    Output::error('Failed to copy tinyphp.zip from phar.');
+                    return false;
+                }
+                $tinyphpZip = $tempZip;
+            }
+
+            $archive = new \ZipArchive();
+            if ($archive->open($tinyphpZip) !== true) {
+                Output::error('Failed to open tinyphp.zip');
+                if ($tempZip !== null) {
+                    @unlink($tempZip);
+                }
+                return false;
+            }
+            $archive->extractTo($winRoot);
+            $archive->close();
+            if ($tempZip !== null) {
+                @unlink($tempZip);
+            }
+            return true;
+        }
+
+        $sourceTinyphp = $this->resolveTemplateDir('win' . DIRECTORY_SEPARATOR . 'tinyphp');
+        if ($sourceTinyphp === null) {
+            Output::error('Windows resource not found: win/tinyphp.zip or win/tinyphp');
+            return false;
+        }
+
+        return $this->copyDir($sourceTinyphp, $winRoot . DIRECTORY_SEPARATOR . 'tinyphp');
     }
 
     private function packDocker(string $version, string $preparedSrc): void
